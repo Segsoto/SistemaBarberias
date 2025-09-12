@@ -42,6 +42,7 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingAppointment, setEditingAppointment] = useState<string | null>(null)
+  const [originalHour, setOriginalHour] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBarber, setSelectedBarber] = useState<string>('')
   
@@ -178,7 +179,8 @@ export default function AppointmentsPage() {
       // Primero, buscar o crear el cliente
       let clientId = ''
       const existingClient = clients.find(c => 
-        c.telefono === formData.clientPhone || c.nombre.toLowerCase() === formData.clientName.toLowerCase()
+        c.nombre.toLowerCase() === formData.clientName.toLowerCase() && 
+        (formData.clientPhone.trim() === '' || c.telefono === formData.clientPhone)
       )
 
       if (existingClient) {
@@ -189,7 +191,7 @@ export default function AppointmentsPage() {
             .from('clients')
             .update({
               nombre: formData.clientName,
-              telefono: formData.clientPhone
+              telefono: formData.clientPhone.trim() || undefined
             })
             .eq('id', clientId)
         }
@@ -200,7 +202,7 @@ export default function AppointmentsPage() {
           .insert({
             barbershop_id: currentBarbershop.id,
             nombre: formData.clientName,
-            telefono: formData.clientPhone
+            telefono: formData.clientPhone.trim() || undefined
           })
           .select()
           .single()
@@ -263,17 +265,23 @@ export default function AppointmentsPage() {
   }
 
   const handleEdit = (appointment: AppointmentWithClient) => {
+    // Limpiar formato de hora - remover segundos si existen
+    const cleanHour = appointment.hora.substring(0, 5) // '14:30:00' -> '14:30'
+    
     setEditingAppointment(appointment.id)
+    setOriginalHour(cleanHour) // Guardar la hora original limpia
     setFormData({
       clientName: appointment.clients.nombre,
       clientPhone: appointment.clients.telefono || '',
       fecha: appointment.fecha,
-      hora: appointment.hora,
+      hora: cleanHour, // Usar hora limpia
       barberId: appointment.barber_id,
       tipo_servicio: (appointment as any).tipo_servicio || 'corte',
       estado: appointment.estado,
       notas: appointment.notas || ''
     })
+    
+    console.log('Editando cita - Hora original:', cleanHour)
     setShowModal(true)
   }
 
@@ -310,6 +318,7 @@ export default function AppointmentsPage() {
       notas: ''
     })
     setEditingAppointment(null)
+    setOriginalHour('')
   }
 
   // Validar si una fecha es válida para agendar
@@ -355,7 +364,7 @@ export default function AppointmentsPage() {
     appointments.forEach(appointment => {
       if (appointment.fecha === date && 
           appointment.estado !== 'cancelada' && 
-          appointment.id !== formData.id) { // Excluir la cita que se está editando
+          appointment.id !== editingAppointment) { // Excluir la cita que se está editando
         const slots = getOccupiedSlots(appointment)
         slots.forEach(slot => occupiedSlots.add(slot))
       }
@@ -366,13 +375,37 @@ export default function AppointmentsPage() {
 
   // Obtener horas disponibles según la configuración
   const getAvailableTimeSlots = (): string[] => {
-    if (!config || !formData.fecha) return []
+    console.log('getAvailableTimeSlots - config:', config)
+    console.log('getAvailableTimeSlots - formData.fecha:', formData.fecha)
+    
+    if (!config) {
+      console.warn('No hay configuración disponible')
+      return []
+    }
+    
+    if (!formData.fecha) {
+      console.warn('No hay fecha seleccionada')
+      return []
+    }
     
     const allSlots = generateTimeSlots(config)
-    const occupiedSlots = getOccupiedSlotsForDate(formData.fecha)
+    console.log('Todos los slots generados:', allSlots)
     
-    // Filtrar slots ocupados
-    return allSlots.filter(slot => !occupiedSlots.has(slot))
+    const occupiedSlots = getOccupiedSlotsForDate(formData.fecha)
+    console.log('Slots ocupados:', Array.from(occupiedSlots))
+    
+    // Si estamos editando, incluir la hora original aunque esté ocupada
+    const availableSlots = allSlots.filter(slot => {
+      if (editingAppointment && slot === originalHour) {
+        console.log('Incluyendo hora original:', originalHour)
+        return true // Siempre incluir la hora original al editar
+      }
+      return !occupiedSlots.has(slot)
+    })
+    
+    console.log('Editando cita?', !!editingAppointment, 'Hora original:', originalHour)
+    console.log('Slots disponibles finales:', availableSlots)
+    return availableSlots
   }
 
   // Validar el formulario antes de enviar
@@ -382,10 +415,11 @@ export default function AppointmentsPage() {
       return false
     }
 
-    if (!formData.clientPhone.trim()) {
-      toast.error('El teléfono del cliente es requerido')
-      return false
-    }
+    // El teléfono ahora es opcional
+    // if (!formData.clientPhone.trim()) {
+    //   toast.error('El teléfono del cliente es requerido')
+    //   return false
+    // }
 
     if (!formData.fecha) {
       toast.error('La fecha es requerida')
@@ -693,7 +727,7 @@ export default function AppointmentsPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Teléfono del Cliente
+                      Teléfono del Cliente (Opcional)
                     </label>
                     <input
                       type="tel"
@@ -727,7 +761,7 @@ export default function AppointmentsPage() {
                     </label>
                     <select
                       value={formData.tipo_servicio}
-                      onChange={(e) => setFormData({...formData, tipo_servicio: e.target.value as 'corte' | 'corte_barba', hora: ''})}
+                      onChange={(e) => setFormData({...formData, tipo_servicio: e.target.value as 'corte' | 'corte_barba', hora: editingAppointment ? originalHour : ''})}
                       className="input-field"
                       required
                     >
@@ -748,7 +782,7 @@ export default function AppointmentsPage() {
                       <input
                         type="date"
                         value={formData.fecha}
-                        onChange={(e) => setFormData({...formData, fecha: e.target.value, hora: ''})}
+                        onChange={(e) => setFormData({...formData, fecha: e.target.value, hora: editingAppointment ? originalHour : ''})}
                         className="input-field"
                         min={new Date().toISOString().split('T')[0]}
                         required

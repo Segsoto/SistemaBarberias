@@ -18,8 +18,8 @@ export interface BarbershopConfig {
 
 // Configuración por defecto
 const defaultConfig: BarbershopConfig = {
-  hora_apertura: '08:00',
-  hora_cierre: '18:00',
+  hora_apertura: '08:00:00',
+  hora_cierre: '18:00:00',
   dias_laborales: ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'],
   duracion_cita: 30,
   duracion_corte_barba: 60,
@@ -34,24 +34,35 @@ const defaultConfig: BarbershopConfig = {
 
 export async function getBarbershopConfig(): Promise<BarbershopConfig> {
   try {
+    // Obtener el usuario autenticado
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user?.email) {
+      console.warn('Usuario no autenticado, usando configuración por defecto')
+      return defaultConfig
+    }
+
     const { data: barbershop, error } = await supabase
       .from('barbershops')
       .select('*')
+      .eq('email', user.email)
       .single()
 
     if (error) {
       console.error('Error al obtener configuración de barbería:', error)
+      console.warn('Usando configuración por defecto debido al error')
       return defaultConfig
     }
 
     if (!barbershop) {
+      console.warn('No se encontró barbería, usando configuración por defecto')
       return defaultConfig
     }
 
     // Usar any para acceder a propiedades que pueden no estar en el tipo
     const barbershopData = barbershop as any
 
-    return {
+    const config = {
       hora_apertura: barbershopData.hora_apertura || defaultConfig.hora_apertura,
       hora_cierre: barbershopData.hora_cierre || defaultConfig.hora_cierre,
       dias_laborales: barbershopData.dias_laborales || defaultConfig.dias_laborales,
@@ -65,8 +76,12 @@ export async function getBarbershopConfig(): Promise<BarbershopConfig> {
       whatsapp_numero: barbershopData.whatsapp_numero || defaultConfig.whatsapp_numero,
       tiempo_cancelacion: barbershopData.tiempo_cancelacion || defaultConfig.tiempo_cancelacion
     }
+
+    console.log('Configuración cargada:', config)
+    return config
   } catch (error) {
     console.error('Error al cargar configuración:', error)
+    console.warn('Usando configuración por defecto debido al error')
     return defaultConfig
   }
 }
@@ -75,8 +90,18 @@ export function generateTimeSlots(config: BarbershopConfig): string[] {
   const slots: string[] = []
   
   try {
-    const startTime = parse(config.hora_apertura, 'HH:mm', new Date())
-    const endTime = parse(config.hora_cierre, 'HH:mm', new Date())
+    // Limpiar formato de hora - remover segundos si existen
+    const cleanStartTime = config.hora_apertura.substring(0, 5) // '09:00:00' -> '09:00'
+    const cleanEndTime = config.hora_cierre.substring(0, 5) // '17:00:00' -> '17:00'
+    
+    console.log('Generando slots con:', {
+      startTime: cleanStartTime,
+      endTime: cleanEndTime,
+      duration: config.duracion_cita
+    })
+
+    const startTime = parse(cleanStartTime, 'HH:mm', new Date())
+    const endTime = parse(cleanEndTime, 'HH:mm', new Date())
     const duration = config.duracion_cita
 
     let currentTime = startTime
@@ -85,8 +110,11 @@ export function generateTimeSlots(config: BarbershopConfig): string[] {
       slots.push(format(currentTime, 'HH:mm'))
       currentTime = addMinutes(currentTime, duration)
     }
+
+    console.log('Slots generados exitosamente:', slots.length, 'slots')
   } catch (error) {
     console.error('Error al generar slots de tiempo:', error)
+    console.log('Usando slots por defecto')
     // Slots por defecto si hay error
     return ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', 
             '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', 
