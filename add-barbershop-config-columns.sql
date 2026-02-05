@@ -32,7 +32,7 @@ ADD COLUMN IF NOT EXISTS tiempo_cancelacion INTEGER DEFAULT 120; -- minutos
 ALTER TABLE barbershops 
 ADD COLUMN IF NOT EXISTS instagram VARCHAR(255),
 ADD COLUMN IF NOT EXISTS facebook VARCHAR(255);
-
+    
 -- Verificar que las columnas se agregaron correctamente
 SELECT 
     column_name, 

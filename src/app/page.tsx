@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { Eye, EyeOff, Scissors } from 'lucide-react'
+import { logClientError } from '@/lib/clientLogger'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -24,7 +25,14 @@ export default function LoginPage() {
       })
 
       if (error) {
-        toast.error('Error al iniciar sesión: ' + error.message)
+        	toast.error('Error al iniciar sesión: ' + error.message)
+
+        	// Enviar registro remoto para diagnóstico (no incluir la contraseña)
+        	logClientError({
+        	  context: 'login_response_error',
+        	  email,
+        	  message: error.message,
+        	})
         return
       }
 
@@ -48,6 +56,14 @@ export default function LoginPage() {
     } catch (error) {
       toast.error('Error inesperado al iniciar sesión')
       console.error('Login error:', error)
+
+      // Enviar error al servidor para investigar dispositivos donde ocurre
+      logClientError({
+        context: 'login_exception',
+        email,
+        message: String((error as Error)?.message ?? error),
+        stack: (error as Error)?.stack ?? null,
+      })
     } finally {
       setLoading(false)
     }

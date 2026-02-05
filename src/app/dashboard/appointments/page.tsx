@@ -373,6 +373,34 @@ export default function AppointmentsPage() {
     return occupiedSlots
   }
 
+  // Validar si un horario está disponible para una fecha específica
+  const isTimeSlotAvailable = (fecha: string, hora: string, excludeAppointmentId?: string): boolean => {
+    const cleanHour = hora.substring(0, 5) // Limpiar formato de hora
+    
+    // Buscar citas activas en esa fecha y hora
+    const conflictingAppointment = appointments.find(appointment => {
+      if (appointment.id === excludeAppointmentId) return false // Excluir la cita actual
+      if (appointment.fecha !== fecha) return false // Solo buscar en la misma fecha
+      if (appointment.estado === 'cancelada') return false // Ignorar citas canceladas
+      
+      // Limpiar hora de la cita existente
+      const existingCleanHour = appointment.hora.substring(0, 5)
+      
+      // Verificar si hay conflicto directo
+      if (existingCleanHour === cleanHour) return true
+      
+      // Verificar si la nueva cita se solapa con la duración de la existente
+      if (!config) return false
+      
+      const existingDuration = appointment.duracion_minutos || getServiceDuration(appointment.tipo_servicio, config)
+      const existingSlots = getOccupiedSlots(appointment)
+      
+      return existingSlots.includes(cleanHour)
+    })
+    
+    return !conflictingAppointment
+  }
+
   // Obtener horas disponibles según la configuración
   const getAvailableTimeSlots = (): string[] => {
     console.log('getAvailableTimeSlots - config:', config)
@@ -447,6 +475,41 @@ export default function AppointmentsPage() {
     if (!formData.barberId) {
       toast.error('El barbero es requerido')
       return false
+    }
+
+    // Validación especial: Reactivar cita cancelada
+    if (editingAppointment) {
+      const originalAppointment = appointments.find(apt => apt.id === editingAppointment)
+      
+      if (originalAppointment && 
+          originalAppointment.estado === 'cancelada' && 
+          formData.estado !== 'cancelada') {
+        
+        // La cita estaba cancelada y se intenta reactivar
+        console.log('Intentando reactivar cita cancelada:', originalAppointment.id)
+        
+        // Verificar si el horario ya está ocupado por otra cita
+        if (!isTimeSlotAvailable(formData.fecha, formData.hora, editingAppointment)) {
+          // Buscar la cita que está ocupando el horario para dar más información
+          const conflictingAppointment = appointments.find(apt => {
+            if (apt.id === editingAppointment) return false
+            if (apt.fecha !== formData.fecha) return false
+            if (apt.estado === 'cancelada') return false
+            
+            const conflictHour = apt.hora.substring(0, 5)
+            const requestedHour = formData.hora.substring(0, 5)
+            
+            return conflictHour === requestedHour
+          })
+          
+          const conflictInfo = conflictingAppointment 
+            ? ` (ocupado por ${conflictingAppointment.clients.nombre} - ${conflictingAppointment.estado})`
+            : ''
+          
+          toast.error(`Lo siento, esta cita estaba cancelada y ya no está disponible este horario${conflictInfo}. Por favor, selecciona otro horario para reagendar la cita.`)
+          return false
+        }
+      }
     }
 
     // Verificar conflictos de horario
