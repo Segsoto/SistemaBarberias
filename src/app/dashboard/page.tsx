@@ -6,6 +6,7 @@ import Navigation from '@/components/Navigation'
 import type { Appointment, AppointmentWithClient, Barber, Barbershop } from '@/types/supabase'
 import { Calendar, Clock, Users, TrendingUp, Scissors, Award, Phone } from 'lucide-react'
 import { format, isToday, isTomorrow, parseISO, startOfMonth, endOfMonth } from 'date-fns'
+import toast from 'react-hot-toast'
 import { es } from 'date-fns/locale'
 
 export default function DashboardPage() {
@@ -21,6 +22,9 @@ export default function DashboardPage() {
     activeBarbers: 0
   })
   const [loading, setLoading] = useState(true)
+  // Toggle temporal para pruebas: forzar que el prompt se muestre independientemente del día
+  // Poner a `false` para comportamiento de producción (solo 30/31)
+  const FORCE_SHOW_PROMPT_FOR_TESTING = false
 
   useEffect(() => {
     loadDashboardData()
@@ -40,6 +44,13 @@ export default function DashboardPage() {
 
       if (!barbershop) return
       setCurrentBarbershop(barbershop)
+
+      // Mostrar prompt de limpieza si corresponde
+      try {
+        await showCleanupPromptIfNeeded(barbershop)
+      } catch (err) {
+        console.error('Error mostrando prompt de limpieza:', err)
+      }
 
       // Cargar barberos
       const { data: barbersData } = await supabase
@@ -81,6 +92,55 @@ export default function DashboardPage() {
       console.error('Error loading dashboard data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const showCleanupPromptIfNeeded = async (barbershop: any) => {
+    try {
+      if (!barbershop || !barbershop.id) return
+      const today = new Date().toISOString().split('T')[0]
+      const day = new Date().getDate()
+
+      if (!FORCE_SHOW_PROMPT_FOR_TESTING && day !== 30 && day !== 31) return
+
+      const lastShown = barbershop.last_cleanup_prompt_date || null
+      if (lastShown === today) return
+
+      // Mostrar prompt nativo (simple y fiable)
+      const confirmed = typeof window !== 'undefined' ? window.confirm('¿Quieres hacer la limpieza de datos de este mes?') : false
+
+      // Actualizar marca para que no vuelva a mostrarse este día
+      const { error: updateError } = await supabase
+        .from('barbershops')
+        .update({ last_cleanup_prompt_date: today })
+        .eq('id', barbershop.id)
+
+      if (updateError) {
+        console.error('Error actualizando last_cleanup_prompt_date:', updateError)
+      }
+
+      if (confirmed) {
+        const monthStart = startOfMonth(new Date()).toISOString().split('T')[0]
+        const monthEnd = endOfMonth(new Date()).toISOString().split('T')[0]
+
+        const { error } = await supabase
+          .from('appointments')
+          .delete()
+          .eq('barbershop_id', barbershop.id)
+          .gte('fecha', monthStart)
+          .lte('fecha', monthEnd)
+          .eq('estado', 'cancelada')
+
+        if (error) {
+          toast.error('Error al realizar limpieza: ' + error.message)
+        } else {
+          toast.success('Limpieza del mes completada')
+        }
+      } else {
+        toast('Limpieza no realizada')
+      }
+    } catch (error) {
+      console.error('showCleanupPromptIfNeeded error:', error)
     }
   }
 
