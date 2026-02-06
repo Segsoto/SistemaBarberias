@@ -420,6 +420,9 @@ export default function AppointmentsPage() {
     console.log('Todos los slots generados:', allSlots)
     
     const occupiedSlots = getOccupiedSlotsForDate(formData.fecha)
+
+    // Determinar la duración del servicio seleccionado para filtrar correctamente
+    const serviceDuration = config ? getServiceDuration(formData.tipo_servicio, config) : (config?.duracion_cita || 30)
     console.log('Slots ocupados:', Array.from(occupiedSlots))
     
     // Si estamos editando, incluir la hora original aunque esté ocupada
@@ -428,7 +431,27 @@ export default function AppointmentsPage() {
         console.log('Incluyendo hora original:', originalHour)
         return true // Siempre incluir la hora original al editar
       }
-      return !occupiedSlots.has(slot)
+
+      // Para que un slot de inicio sea válido, todos los sub-slots dentro de la
+      // duración del servicio deben estar libres. Generamos sub-slots cada 15 minutos
+      // desde el inicio hasta el fin del servicio y verificamos si alguno está ocupado.
+      try {
+        let current = parse(slot, 'HH:mm', new Date())
+        const endTime = addMinutes(current, serviceDuration)
+
+        while (current < endTime) {
+          const subSlot = format(current, 'HH:mm')
+          if (occupiedSlots.has(subSlot)) {
+            return false
+          }
+          current = addMinutes(current, 15)
+        }
+      } catch (error) {
+        console.error('Error al verificar sub-slots para', slot, error)
+        return false
+      }
+
+      return true
     })
     
     console.log('Editando cita?', !!editingAppointment, 'Hora original:', originalHour)
